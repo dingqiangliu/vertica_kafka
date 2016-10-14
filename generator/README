@@ -1,0 +1,59 @@
+vmart_gen.cpp is the data generator for the VMart Example Database
+as described in the Getting Started guide.
+
+To build:
+
+    g++ vmart_gen.cpp -o vmart_gen
+    chmod +x vmart_gen
+
+To run:
+
+    ./vmart_gen
+    [ --datadirectory <dir-data-files> ]
+    [ --files <fact-table-load-files> ]
+    [ --null  <character-to-indicate-null-value> ]
+    [ --seed  <for-random-number-generator> ]
+    [ --time_file  <data-for-Date_Dimension> ]
+    [ --store_sales_fact  <rows> ]
+    [ --store_orders_fact  <rows> ]
+    [ --product_dimension  <rows> ]
+    [ --store_dimension  <rows> ]
+    [ --promotion_dimension  <rows> ]
+    [ --vendor_dimension  <rows> ]
+    [ --customer_dimension  <rows> ]
+    [ --employee_dimension  <rows> ]
+    [ --warehouse_dimension <rows> ]
+    [ --shipping_dimension <rows> ]
+    [ --online_page_dimension <rows> ]
+    [ --callcenter_dimension <rows> ]
+    [ --online_sales_fact <rows> ]
+    [ --inventory_fact <rows> ]
+    [ --gen_load_script ]
+  # add by DQ: 
+    [ --tablename <tablename>]
+    [ --outputfilename <output filename, - means stdout> ]
+    
+where the options can be in any order and only need to be long enough to be unique.
+
+Example:
+
+./vmart_gen \
+         --datadirectory /temp/vmart_schema \
+         --store_sales_fact 5000000 \
+         --product_dimension 500 \
+         --store_dimension 50 \
+         --promotion_dimension 100
+
+# add by DQ: 
+# generate table to file
+./vmart_gen --tablename online_sales_fact --outputfilename ../test.tbl 
+# generate table to stdout
+./vmart_gen --tablename online_sales_fact --outputfilename - 
+
+time ./vmart_gen time_file ./Time.txt --seed ${RANDOM} --online_sales_fact 10000000 --tablename online_sales_fact --outputfilename - | wc -l
+
+
+For more information on the steps required to setup the demo application, please
+refer to the Getting Started guide. 
+
+
