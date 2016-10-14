@@ -204,23 +204,17 @@ test_init() {
 	
 	EOF
 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --create --username dbadmin --password "" --config-schema stream_config --frame-duration "$FRAME_DURATION" --resource-pool general --operator dbadmin
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig cluster --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --hosts $BROKERS 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig source --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --source $TOPIC_NAME --partitions $NUM_PARTS 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig target --create --username dbadmin --password "" --config-schema stream_config --target-schema public --target-table kafka_online_sales_fact 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --create --username dbadmin --password "" --config-schema stream_config --load-spec loadspec1  --parser delimited --filters $"FILTER KafkaInsertDelimiters(delimiter = E'\n')" --load-method direct
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig microbatch --create --username dbadmin --password "" --config-schema stream_config --microbatch microbatch1  --target-schema public --target-table kafka_online_sales_fact --load-spec loadspec1 --add-source $TOPIC_NAME --add-source-cluster testKafkaCluster --rejection-schema public --rejection-table kafka_online_sales_fact_rej
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --add --username dbadmin --password "" --config-schema stream_config --frame-duration "$FRAME_DURATION" --brokers $BROKERS --resource-pool general --operator dbadmin
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig kafka-cluster --add --username dbadmin --password "" --config-schema stream_config --brokers $BROKERS --cluster testKafkaCluster
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig topic --add --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --target public.kafka_online_sales_fact --rejection-table public.kafka_online_sales_fact_rej --parser delimited --filters $"FILTER KafkaInsertDelimiters(delimiter = E'\n')" --load-method direct --topic $TOPIC_NAME --num-partitions $NUM_PARTS 
 
+  
 	runcmd $VSQL <<-EOF
-	  select * from stream_config.stream_scheduler;
-	  select * from stream_config.stream_clusters;
-	  select * from stream_config.stream_sources;
-	  select * from stream_config.stream_targets;
-	  select * from stream_config.stream_load_specs;
-	  select * from stream_config.stream_microbatches;
-	  select * from stream_config.stream_microbatch_source_map;
-	  select * from stream_config.stream_lock;
-	  select batch_start,batch_end-batch_start,end_offset,(end_offset-start_offset) as msgs,end_reason from stream_config.stream_microbatch_history order by batch_start desc limit 1;
+	  select * from stream_config.kafka_clusters;
+	  select * from stream_config.kafka_scheduler;
+	  select * from stream_config.kafka_targets;
+	  select * from stream_config.kafka_offsets;
+	  select * from stream_config.kafka_lock;
 	EOF
 
 }
@@ -228,15 +222,13 @@ test_init() {
 #clean test
 test_clean() {
   echo droping config on vertica ...
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig microbatch --delete --username dbadmin --password "" --config-schema stream_config --microbatch microbatch1 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --delete --username dbadmin --password "" --config-schema stream_config --load-spec loadspec1 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig target --delete --username dbadmin --password "" --config-schema stream_config --target-schema public --target-table kafka_online_sales_fact 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig source --delete --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --source $TOPIC_NAME 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig cluster --delete --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --drop --username dbadmin --password "" --config-schema  stream_config
 
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig topic --remove --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --target public.kafka_online_sales_fact 
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig kafka-cluster --remove --username dbadmin --password "" --config-schema stream_config --brokers $BROKERS --cluster testKafkaCluster
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --remove --config-schema stream_config
+  
   ## uninstall kafka connector for Vertica
-  #runcmd $VSQL -c "drop schema if exists stream_config cascade;"
+  runcmd $VSQL -c "drop schema if exists stream_config cascade;"
   runcmd $VSQL -c "drop table if exists kafka_online_sales_fact cascade;"
   runcmd $VSQL -c "drop table if exists kafka_online_sales_fact_rej cascade;"
  
@@ -273,6 +265,31 @@ producer_stop() {
 consumer_start() {
   echo loading data ...
   runcmd nohup /opt/vertica/packages/kafka/bin/vkconfig launch --username dbadmin --password "" --config-schema stream_config --instance-name scheduler0 &
+
+#  stream=$(printf "${TOPIC_NAME}|0|0"; for((i=1; i<NUM_PARTS; i++)) ; do printf ",${TOPIC_NAME}|%s|0" $i; done)
+#
+#	runcmd $VSQL <<-EOF
+#	  select version();
+#	  truncate table kafka_online_sales_fact;
+#	  alter session clear udparameter all for KafkaLib;
+#	  -- select clear_profiling('EE','Global');
+#	  show session udparameter all; 
+#	  -- profile 
+#	  copy kafka_online_sales_fact source kafkasource(stream='${stream}', brokers='$BROKERS', stop_on_eof=true, duration=interval '10 seconds') FILTER KafkaInsertDelimiters(delimiter = E'\n') direct;	  
+#	  show session udparameter all; 
+#	  
+#	  -- alter session clear udparameter all for KafkaLib;
+#	  -- show session udparameter all; 
+#	  -- copy kafka_online_sales_fact source kafkasource(stream='${stream}', brokers='localhost:9092', stop_on_eof=true, duration=interval '10 seconds') FILTER KafkaInsertDelimiters(delimiter = E'\n') direct;
+#	  -- show session udparameter all; 
+#	EOF
+#  
+#	runcmd $VSQL <<-EOF
+#	  select count(*) from kafka_online_sales_fact;
+#	  select audit('kafka_online_sales_fact');
+#	
+#	  -- select node_name, counter_value from v_monitor.execution_engine_profiles where operator_name='Load' and counter_value > 0 and counter_name='rows produced';
+#	EOF
 }
 
 # stop consumer
@@ -286,7 +303,7 @@ mon() {
   echo "monitoring..."
   kafka_topic_status="$($KAFKA_HOME/bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list $BROKERS --topic $TOPIC_NAME --time -1|sed -s 's/:/, /g')"
   target_row_count=$($VSQL_F -F ", " -XAqtc "select count(*) from kafka_online_sales_fact;")
-  microbatch_history=$($VSQL_F -F ", " -XAqtc "select batch_start,batch_end-batch_start,end_offset,(end_offset-start_offset) as msgs,end_reason from stream_config.stream_microbatch_history order by batch_start desc limit 1;")
+  microbatch_history=$($VSQL_F -F ", " -XAqtc "select batch_start,batch_end-batch_start,end_offset,num_messages,reason from stream_config.kafka_offsets order by batch_start desc limit 1;")
   running_copy_count=$($VSQL_F -F ", " -XAqtc "select count(*) from sessions where current_statement like 'COPY%KafkaSource%';")
   
 	cat<<-EOF

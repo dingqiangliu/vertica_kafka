@@ -90,4 +90,5 @@ ENV/
 
 #vim tmp file
 *.un~
+.DS_Store
 
