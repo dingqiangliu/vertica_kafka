@@ -88,6 +88,8 @@ ENV/
 # Rope project settings
 .ropeproject
 
-#vim tmp file
+# tmp files
 *.un~
+.DS_Store
+*.out
 

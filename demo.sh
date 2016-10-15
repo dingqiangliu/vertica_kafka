@@ -64,7 +64,7 @@ runscript_on() {
 # run runscript on localhost
 runscript() {
   if((dryRun)) ; then
-	echo "echo $@ | sh"
+	echo "echo \"$@\" | sh"
   else
 	echo "$@" | sh
   fi
@@ -251,10 +251,18 @@ producer_start() {
   for((n=0; n<PROD_COUNT; n++)) ; do
 	cat <<-EOF > /tmp/testkafkaproducer${n}.sh
 	  while true; do
-        ${scriptDir}/vmart_gen --time_file ${scriptDir}/Time.txt --seed ${RANDOM} --online_sales_fact $((ROWS_COUNT/PROD_COUNT)) --tablename online_sales_fact --outputfilename - 2>/dev/null | $KAFKA_HOME/bin/kafka-console-producer.sh --topic $TOPIC_NAME --broker-list $BROKERS --metadata-expiry-ms 1000
-		sleep 20
+	    maxKafkaTopicOffset=\$($KAFKA_HOME/bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list $BROKERS --topic $TOPIC_NAME --time -1| awk -F : '{print \$3}' | sort | tail -1)
+	    maxVerticaTopicOffset=\$($VSQL_F -XAqtc "select max(end_offset) from stream_config.stream_microbatch_history where ktopic='$TOPIC_NAME';")
+	    
+	    # make sue the gap betwwen vertica and kafka is not too large to avoid messages lost before comsumering, that will cause vertica connector marking time!
+	    if(( maxVerticaTopicOffset + $ROWS_COUNT > maxKafkaTopicOffset )) ; then
+	      ${scriptDir}/vmart_gen --time_file ${scriptDir}/Time.txt --seed \${RANDOM} --online_sales_fact $((ROWS_COUNT/PROD_COUNT)) --tablename online_sales_fact --outputfilename - 2>/dev/null | $KAFKA_HOME/bin/kafka-console-producer.sh --topic $TOPIC_NAME --broker-list $BROKERS --metadata-expiry-ms 1000	
+	    else
+	      sleep 1
+	    fi
 	  done
 	EOF
+
 	runcmd chmod a+x /tmp/testkafkaproducer${n}.sh
 	runcmd nohup /tmp/testkafkaproducer${n}.sh &
   done
@@ -265,7 +273,7 @@ producer_stop() {
   echo "stoping producer..."
 
   for((n=0; n<PROD_COUNT; n++)) ; do
-	runscript "ps ax | grep testkafkaproducer${n}.sh | grep -v "$0" | grep -v grep | awk '{print $1}' | xargs kill -9"
+	runscript "ps ax | grep testkafkaproducer${n}.sh | grep -v "$0" | grep -v grep | awk '{print \$1}' | xargs kill -9"
   done
 }
 
@@ -284,7 +292,7 @@ consumer_stop() {
 # mon
 mon() {
   echo "monitoring..."
-  kafka_topic_status="$($KAFKA_HOME/bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list $BROKERS --topic $TOPIC_NAME --time -1|sed -s 's/:/, /g')"
+  kafka_topic_status="$($KAFKA_HOME/bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list $BROKERS --topic $TOPIC_NAME --time -1 | tr "\\r\\n" ";" |sed -s 's/:/, /g')"
   target_row_count=$($VSQL_F -F ", " -XAqtc "select count(*) from kafka_online_sales_fact;")
   microbatch_history=$($VSQL_F -F ", " -XAqtc "select batch_start,batch_end-batch_start,end_offset,(end_offset-start_offset) as msgs,end_reason from stream_config.stream_microbatch_history order by batch_start desc limit 1;")
   running_copy_count=$($VSQL_F -F ", " -XAqtc "select count(*) from sessions where current_statement like 'COPY%KafkaSource%';")
@@ -331,14 +339,14 @@ VSQL_F=${VSQL/-e/}; VSQL_F=${VSQL_F/-a/}
 KAFKA_HOME=${KAFKA_HOME:-"/usr/local/kafka_2.10-0.8.2.1"}
 # KAFKA_HOME=${KAFKA_HOME:-"/usr/local/kafka_2.10-0.9.0.1"}
 ZOOKEEPERS=${ZOOKEEPERS:-"v001:2181"}
-#BROKERS=${BROKERS:-"v001:9092,v001:9093"}
+#BROKERS=${BROKERS:-"v001:9092,v001:9093,v001:9094"}
 BROKERS=${BROKERS:-"v001:9092"}
 REP_FACTOR=1
 TOPIC_NAME=online_sales_fact
 FRAME_DURATION="00:00:01"
 
 arrBrokers=( $(sed 's/\,/ /g'<<<${BROKERS}) )
-NUM_PARTS=${#arrBrokers[*]}
+NUM_PARTS=$(( ${#arrBrokers[*]} * 1 ))
 
 ROWS_COUNT=1000000
 PROD_COUNT=1
