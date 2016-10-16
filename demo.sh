@@ -252,7 +252,7 @@ producer_start() {
 	cat <<-EOF > /tmp/testkafkaproducer${n}.sh
 	  while true; do
 	    maxKafkaTopicOffset=\$($KAFKA_HOME/bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list $BROKERS --topic $TOPIC_NAME --time -1| awk -F : '{print \$3}' | sort | tail -1)
-	    maxVerticaTopicOffset=\$($VSQL_F -XAqtc "select max(end_offset) from stream_config.stream_microbatch_history where ktopic='$TOPIC_NAME';")
+	    maxVerticaTopicOffset=\$($VSQL_F -XAqtc "select max(end_offset) from stream_config.stream_microbatch_history where source_cluster='testkafkacluster' and source_name='$TOPIC_NAME';")
 	    
 	    # make sue the gap betwwen vertica and kafka is not too large to avoid messages lost before comsumering, that will cause vertica connector marking time!
 	    if(( maxVerticaTopicOffset + $ROWS_COUNT > maxKafkaTopicOffset )) ; then
