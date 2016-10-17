@@ -163,8 +163,10 @@ kafka_start() {
 #int test
 test_init() {
   echo creating topic...
-  runcmd $KAFKA_HOME/bin/kafka-topics.sh --zookeeper $ZOOKEEPERS --create --topic $TOPIC_NAME --partitions $NUM_PARTS --replication-factor $REP_FACTOR 
-  runcmd $KAFKA_HOME/bin/kafka-topics.sh --zookeeper $ZOOKEEPERS --describe --topic $TOPIC_NAME 
+  for((n=0; n<TOPIC_COUNT; n++)) ; do  
+    runcmd $KAFKA_HOME/bin/kafka-topics.sh --zookeeper $ZOOKEEPERS --create --topic ${TOPIC_NAME}${n}  --partitions $NUM_PARTS --replication-factor $REP_FACTOR 
+    runcmd $KAFKA_HOME/bin/kafka-topics.sh --zookeeper $ZOOKEEPERS --describe --topic ${TOPIC_NAME}${n} 
+  done
 
   echo config on vertica ...
   # install kafka connector for Vertica
@@ -205,11 +207,14 @@ test_init() {
 	EOF
 
   runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --create --username dbadmin --password "" --config-schema stream_config --frame-duration "$FRAME_DURATION" --resource-pool general --operator dbadmin
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig cluster --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --hosts $BROKERS 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig source --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --source $TOPIC_NAME --partitions $NUM_PARTS 
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig cluster --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --hosts $BROKERS   
   runcmd /opt/vertica/packages/kafka/bin/vkconfig target --create --username dbadmin --password "" --config-schema stream_config --target-schema public --target-table kafka_online_sales_fact 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --create --username dbadmin --password "" --config-schema stream_config --load-spec loadspec1  --parser delimited --filters $"FILTER KafkaInsertDelimiters(delimiter = E'\n')" --load-method direct
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig microbatch --create --username dbadmin --password "" --config-schema stream_config --microbatch microbatch1  --target-schema public --target-table kafka_online_sales_fact --load-spec loadspec1 --add-source $TOPIC_NAME --add-source-cluster testKafkaCluster --rejection-schema public --rejection-table kafka_online_sales_fact_rej
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --create --username dbadmin --password "" --config-schema stream_config --load-spec loadspec1  --parser delimited --filters $"FILTER KafkaInsertDelimiters(delimiter = E'\n')" --load-method auto 
+
+  for((n=0; n<TOPIC_COUNT; n++)) ; do
+    runcmd /opt/vertica/packages/kafka/bin/vkconfig source --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --source ${TOPIC_NAME}${n} --partitions $NUM_PARTS
+    runcmd /opt/vertica/packages/kafka/bin/vkconfig microbatch --create --username dbadmin --password "" --config-schema stream_config --microbatch microbatch${n}  --target-schema public --target-table kafka_online_sales_fact --load-spec loadspec1 --add-source ${TOPIC_NAME}${n} --add-source-cluster testKafkaCluster --rejection-schema public --rejection-table kafka_online_sales_fact_rej
+  done
 
 	runcmd $VSQL <<-EOF
 	  select * from stream_config.stream_scheduler;
@@ -228,10 +233,12 @@ test_init() {
 #clean test
 test_clean() {
   echo droping config on vertica ...
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig microbatch --delete --username dbadmin --password "" --config-schema stream_config --microbatch microbatch1 
+  for((n=0; n<TOPIC_COUNT; n++)) ; do
+    runcmd /opt/vertica/packages/kafka/bin/vkconfig microbatch --delete --username dbadmin --password "" --config-schema stream_config --microbatch microbatch${n} 
+    runcmd /opt/vertica/packages/kafka/bin/vkconfig source --delete --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --source ${TOPIC_NAME}${n} 
+  done
   runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --delete --username dbadmin --password "" --config-schema stream_config --load-spec loadspec1 
   runcmd /opt/vertica/packages/kafka/bin/vkconfig target --delete --username dbadmin --password "" --config-schema stream_config --target-schema public --target-table kafka_online_sales_fact 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig source --delete --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --source $TOPIC_NAME 
   runcmd /opt/vertica/packages/kafka/bin/vkconfig cluster --delete --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster
   runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --drop --username dbadmin --password "" --config-schema  stream_config
 
@@ -241,22 +248,24 @@ test_clean() {
   runcmd $VSQL -c "drop table if exists kafka_online_sales_fact_rej cascade;"
  
   echo droping kafka topic...
-  runcmd $KAFKA_HOME/bin/kafka-topics.sh --delete --topic $TOPIC_NAME --zookeeper $ZOOKEEPERS
+  for((n=0; n<TOPIC_COUNT; n++)) ; do
+    runcmd $KAFKA_HOME/bin/kafka-topics.sh --delete --topic ${TOPIC_NAME}${n} --zookeeper $ZOOKEEPERS
+  done
 }
 
 # start producer
 producer_start() {
-  echo producer data rows=${ROWS_COUNT}...
+  echo producing data...
 
-  for((n=0; n<PROD_COUNT; n++)) ; do
+  for((n=0; n<TOPIC_COUNT; n++)) ; do
 	cat <<-EOF > /tmp/testkafkaproducer${n}.sh
 	  while true; do
-	    maxKafkaTopicOffset=\$($KAFKA_HOME/bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list $BROKERS --topic $TOPIC_NAME --time -1| awk -F : '{print \$3}' | sort | tail -1)
-	    maxVerticaTopicOffset=\$($VSQL_F -XAqtc "select max(end_offset) from stream_config.stream_microbatch_history where source_cluster='testkafkacluster' and source_name='$TOPIC_NAME';")
+	    maxKafkaTopicOffset=\$($KAFKA_HOME/bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list $BROKERS --topic ${TOPIC_NAME}${n} --time -1| awk -F : '{print \$3}' | sort | tail -1)
+	    maxVerticaTopicOffset=\$($VSQL_F -XAqtc "select max(end_offset) from stream_config.stream_microbatch_history where source_cluster='testkafkacluster' and source_name='${TOPIC_NAME}${n}';")
 	    
 	    # make sue the gap betwwen vertica and kafka is not too large to avoid messages lost before comsumering, that will cause vertica connector marking time!
-	    if(( maxVerticaTopicOffset + $ROWS_COUNT > maxKafkaTopicOffset )) ; then
-	      ${scriptDir}/vmart_gen --time_file ${scriptDir}/Time.txt --seed \${RANDOM} --online_sales_fact $((ROWS_COUNT/PROD_COUNT)) --tablename online_sales_fact --outputfilename - 2>/dev/null | $KAFKA_HOME/bin/kafka-console-producer.sh --topic $TOPIC_NAME --broker-list $BROKERS --metadata-expiry-ms 1000	
+	    if(( maxVerticaTopicOffset + ${ROWS_COUNT}/${TOPIC_COUNT} > maxKafkaTopicOffset )) ; then
+	      ${scriptDir}/vmart_gen --time_file ${scriptDir}/Time.txt --seed \${RANDOM} --online_sales_fact $((ROWS_COUNT/TOPIC_COUNT)) --tablename online_sales_fact --outputfilename - 2>/dev/null | $KAFKA_HOME/bin/kafka-console-producer.sh --topic ${TOPIC_NAME}${n} --broker-list $BROKERS --metadata-expiry-ms 1000	
 	    else
 	      sleep 1
 	    fi
@@ -272,7 +281,7 @@ producer_start() {
 producer_stop() {
   echo "stoping producer..."
 
-  for((n=0; n<PROD_COUNT; n++)) ; do
+  for((n=0; n<TOPIC_COUNT; n++)) ; do
 	runscript "ps ax | grep testkafkaproducer${n}.sh | grep -v "$0" | grep -v grep | awk '{print \$1}' | xargs kill -9"
   done
 }
@@ -291,17 +300,27 @@ consumer_stop() {
 
 # mon
 mon() {
-  echo "monitoring..."
-  kafka_topic_status="$($KAFKA_HOME/bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list $BROKERS --topic $TOPIC_NAME --time -1 | tr "\\r\\n" ";" |sed -s 's/:/, /g')"
-  target_row_count=$($VSQL_F -F ", " -XAqtc "select count(*) from kafka_online_sales_fact;")
-  microbatch_history=$($VSQL_F -F ", " -XAqtc "select batch_start,batch_end-batch_start,end_offset,(end_offset-start_offset) as msgs,end_reason from stream_config.stream_microbatch_history order by batch_start desc limit 1;")
-  running_copy_count=$($VSQL_F -F ", " -XAqtc "select count(*) from sessions where current_statement like 'COPY%KafkaSource%';")
+  kafka_status=$($scriptDir/kafkacat -L -b $BROKERS -q 2>/dev/null|sed '2,$s/^/                            /g')
+  vertica_status=$($VSQL_F -XAqtc 'select version();' 2>/dev/null)
+
+  kafka_offsets_of_topics="$(test -n "$kafka_status" && for((n=0; n<TOPIC_COUNT; n++)) ; do $KAFKA_HOME/bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list $BROKERS --topic ${TOPIC_NAME}${n} --time -1; done | tr "\\r\\n" ";" |sed -s 's/:/, /g')"
+  target_row_count=$(test -n "$vertica_status" && $VSQL_F -F ", " -XAqtc "select count(*) from kafka_online_sales_fact;")
+  scheduler_is_running=$(test -n "$vertica_status" && $VSQL_F -F ", " -XAqtc "SELECT count(*) as cnt FROM v_monitor.locks AS l JOIN v_catalog.tables AS t ON l.object_id = t.table_id WHERE t.table_schema ilike 'stream_config' AND t.table_name = 'stream_lock' AND l.lock_scope ilike '%transaction%' AND l.lock_mode ilike '%s%';")
+  running_producers_count=$(ps ax | grep testkafkaproducer.*.sh | grep -v grep | awk '{print $6}' | sort -u | wc -l)
+  running_copy_count=$(test -n "$vertica_status" && $VSQL_F -F ", " -XAqtc "select count(*) from sessions where current_statement like 'COPY%KafkaSource%';")
+  latest_microbatch=$(test -n "$vertica_status" && $VSQL_F -F ", " -XAqtc "select microbatch,source_name,batch_start,batch_end-batch_start,end_offset,(end_offset-start_offset) as msgs,end_reason from stream_config.stream_microbatch_history limit 1 over(partition by microbatch,source_name order by batch_start desc);"|sed '2,$s/^/                           /g')
   
 	cat<<-EOF
-	  kafka topic status    : $kafka_topic_status
-	  target_table_row_count: $target_row_count
-	  microbatch_history    : $microbatch_history
-	  running_copy_cmd_count: $running_copy_count
+	  status...
+	  ----------------------------------------------------------------------------
+	  kafka status           : $kafka_status
+	  vertica status         : $vertica_status
+	  kafka offsets of topics: $kafka_offsets_of_topics
+	  target table rows count: $target_row_count
+	  scheduler is running   : $scheduler_is_running
+	  running producers count: $running_producers_count
+	  running copy cmds count: $running_copy_count
+	  microbatch history     : $latest_microbatch
 	EOF
 }
 
@@ -343,13 +362,13 @@ ZOOKEEPERS=${ZOOKEEPERS:-"v001:2181"}
 BROKERS=${BROKERS:-"v001:9092"}
 REP_FACTOR=1
 TOPIC_NAME=online_sales_fact
-FRAME_DURATION="00:00:01"
 
 arrBrokers=( $(sed 's/\,/ /g'<<<${BROKERS}) )
 NUM_PARTS=$(( ${#arrBrokers[*]} * 1 ))
 
 ROWS_COUNT=1000000
-PROD_COUNT=1
+FRAME_DURATION="00:00:10"
+TOPIC_COUNT=2
 
 case ${tool} in
 	kafka_start ) kafka_start;;
@@ -368,5 +387,4 @@ case ${tool} in
 	services_restart ) producer_stop; consumer_stop; kafka_stop; kafka_start; consumer_start; producer_start;;
 	* ) usage;exit 1;;
 esac
-
 
