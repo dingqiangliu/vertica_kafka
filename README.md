@@ -2,7 +2,7 @@
 
 Vertica and Kafka integration demo
 ==========
-This is simple CLI demo, *demo.sh*, for integraton between Vertica and Kafka.
+This is simple CLI demo, **demo.sh**, for integraton between Vertica and Kafka.
 
 It provide some "tools" to startup/stop kafka cluster, config Vertica microbatch, start/stop producer/consumer, and monitor.
 
@@ -10,11 +10,11 @@ It provide some "tools" to startup/stop kafka cluster, config Vertica microbatch
  * -d . just show the commands, will not run them really. 
 
 
-./demo.sh -t help
+Usage: ./demo.sh -h
 ----------
 ![help](./imgs/help.png)
 
-./demo.sh -t mon
+Monitoring: ./demo.sh -t mon
 ----------
 ![help](./imgs/monitoring.png)
 
