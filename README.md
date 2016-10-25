@@ -16,7 +16,13 @@ Usage: ./demo.sh -h
 
 Monitoring: ./demo.sh -t mon
 ----------
-![help](./imgs/monitoring.png)
+![monitoring](./imgs/monitoring.png)
+
+Note: 
+----------
+ * maybe you need re-compile **vmart_gen** in **generator** directory if your system is not RHEL6.x-64.
+ * before use **-t mon** to get status of kafka, you'd install libs/librdkafka-0.9.1.tgz first.
+
 
 </body> </html>
 
