@@ -75,7 +75,7 @@ runscript() {
 kafka_stop() {
   echo stop kafka service...
   arrBrokerHosts=( $(sed 's/\,/\n/g'<<<"${BROKERS}"| sed 's/:.*//g' | sort -u) )
-  for bhost in ${arrBrokerHosts} ; do
+  for bhost in ${arrBrokerHosts[*]} ; do
     runcmd_on ${bhost} $KAFKA_HOME/bin/kafka-server-stop.sh &
   done
   wait
@@ -83,7 +83,7 @@ kafka_stop() {
   runcmd sleep 5
 
   arrZookeeperHosts=( $(sed 's/\,/\n/g'<<<"${ZOOKEEPERS}"| sed 's/:.*//g' | sort -u) )
-  for zhost in ${arrZookeeperHosts} ; do
+  for zhost in ${arrZookeeperHosts[*]} ; do
     runcmd_on ${zhost} $KAFKA_HOME/bin/zookeeper-server-stop.sh &
   done
   wait
@@ -175,6 +175,8 @@ test_init() {
   fi
   
 	runcmd $VSQL <<-EOF
+	  create resource pool stream_default_pool;
+
 	  drop table if exists kafka_online_sales_fact cascade;
 	
 	  CREATE TABLE kafka_online_sales_fact
@@ -206,7 +208,7 @@ test_init() {
 	
 	EOF
 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --create --username dbadmin --password "" --config-schema stream_config --frame-duration "$FRAME_DURATION" --resource-pool general --operator dbadmin
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --create --username dbadmin --password "" --config-schema stream_config --frame-duration "$FRAME_DURATION" --resource-pool stream_default_pool --operator dbadmin
   runcmd /opt/vertica/packages/kafka/bin/vkconfig cluster --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --hosts $BROKERS   
   runcmd /opt/vertica/packages/kafka/bin/vkconfig target --create --username dbadmin --password "" --config-schema stream_config --target-schema public --target-table kafka_online_sales_fact 
   runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --create --username dbadmin --password "" --config-schema stream_config --load-spec loadspec1  --parser delimited --filters $"FILTER KafkaInsertDelimiters(delimiter = E'\n')" --load-method auto 
@@ -368,7 +370,7 @@ NUM_PARTS=$(( ${#arrBrokers[*]} * 1 ))
 
 ROWS_COUNT=1000000
 FRAME_DURATION="00:00:10"
-TOPIC_COUNT=2
+TOPIC_COUNT=1
 
 case ${tool} in
 	kafka_start ) kafka_start;;
