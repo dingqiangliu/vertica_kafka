@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 curDir=$(pwd)
 scriptDir=$(cd $(dirname $0); pwd)
@@ -55,18 +55,18 @@ runscript_on() {
   scpt=$(sed "s/\\\\/\\\\\\\\/g"<<<"$@")
   
   if((dryRun)) ; then
-	echo ssh ${node} "echo ${scpt} | sh"
+	echo ssh ${node} "echo ${scpt} | bash"
   else
-	ssh ${node} "echo ${scpt} | sh"
+	ssh ${node} "echo ${scpt} | bash"
   fi
 }
 
 # run runscript on localhost
 runscript() {
   if((dryRun)) ; then
-	echo "echo \"$@\" | sh"
+	echo "echo \"$@\" | bash"
   else
-	echo "$@" | sh
+	echo "$@" | bash
   fi
 }
 
@@ -76,6 +76,7 @@ kafka_stop() {
   echo stop kafka service...
   arrBrokerHosts=( $(sed 's/\,/\n/g'<<<"${BROKERS}"| sed 's/:.*//g' | sort -u) )
   for bhost in ${arrBrokerHosts[*]} ; do
+    runcmd_on ${bhost} "sed -i 's/xargs kill/xargs -r kill/g' $KAFKA_HOME/bin/kafka-server-stop.sh"
     runcmd_on ${bhost} $KAFKA_HOME/bin/kafka-server-stop.sh &
   done
   wait
@@ -84,6 +85,7 @@ kafka_stop() {
 
   arrZookeeperHosts=( $(sed 's/\,/\n/g'<<<"${ZOOKEEPERS}"| sed 's/:.*//g' | sort -u) )
   for zhost in ${arrZookeeperHosts[*]} ; do
+    runcmd_on ${zhost} "sed -i 's/xargs kill/xargs -r kill/g' $KAFKA_HOME/bin/zookeeper-server-stop.sh"
     runcmd_on ${zhost} $KAFKA_HOME/bin/zookeeper-server-stop.sh &
   done
   wait
@@ -130,8 +132,8 @@ kafka_start() {
 	zhost=$(cut -d : -f 1 <<<${zookeeper})
     zport=$(cut -d : -f 2 <<<${zookeeper})
     runcmd_on ${zhost} cp $KAFKA_HOME/config/zookeeper.properties /tmp/zookeeper${n}.properties
-    runcmd_on ${zhost} sed -i "s/^clientPort=.*$/clientPort=${zport}/" /tmp/zookeeper${n}.properties
-    runcmd_on ${zhost} sed -i "s/^dataDir=.*$/dataDir=\/tmp\/zookeeper${zid}/" /tmp/zookeeper${n}.properties
+    runcmd_on ${zhost} "sed -i 's/^clientPort=.*$/clientPort=${zport}/' /tmp/zookeeper${n}.properties"
+    runcmd_on ${zhost} "sed -i 's/^dataDir=.*$/dataDir=\/tmp\/zookeeper${zid}/' /tmp/zookeeper${n}.properties"
     runcmd_on ${zhost} $KAFKA_HOME/bin/zookeeper-server-start.sh -daemon /tmp/zookeeper${n}.properties &
   done
   wait
@@ -145,15 +147,15 @@ kafka_start() {
 	bhost=$(cut -d : -f 1 <<<${broker})
     bport=$(cut -d : -f 2 <<<${broker})
     runcmd_on ${bhost} cp $KAFKA_HOME/config/server.properties /tmp/kfk-server${n}.properties
-    runcmd_on ${bhost} sed -i "s/^broker\.id=.*$/broker.id=${bid}/" /tmp/kfk-server${n}.properties
-    runcmd_on ${bhost} sed -i "s/^#*host\.name=.*$/host.name=${bhost}/" /tmp/kfk-server${n}.properties
-    runcmd_on ${bhost} sed -i "s/^port=.*$/port=${bport}/" /tmp/kfk-server${n}.properties
-    runcmd_on ${bhost} sed -i "s/^zookeeper\.connect=.*$/zookeeper.connect=${ZOOKEEPERS}/" /tmp/kfk-server${n}.properties
+    runcmd_on ${bhost} "sed -i 's/^broker\.id=.*$/broker.id=${bid}/' /tmp/kfk-server${n}.properties"
+    runcmd_on ${bhost} "sed -i 's/^#*host\.name=.*$/host.name=${bhost}/' /tmp/kfk-server${n}.properties"
+    runcmd_on ${bhost} "sed -i 's/^port=.*$/port=${bport}/' /tmp/kfk-server${n}.properties"
+    runcmd_on ${bhost} "sed -i 's/^zookeeper\.connect=.*$/zookeeper.connect=${ZOOKEEPERS}/' /tmp/kfk-server${n}.properties"
 	
-    runcmd_on ${bhost} sed -i "s/^log\.dirs=.*$/log.dirs=\/tmp\/kafka-logs${bid}/" /tmp/kfk-server${n}.properties
-    runcmd_on ${bhost} sed -i "s/^log\.retention\.check.interval\.ms=.*$/log.retention.check.interval.ms=1000/" /tmp/kfk-server${n}.properties
-	runcmd_on ${bhost} sed -i "1s/^/log.retention.bytes=$((200*1024*1024))\n/" /tmp/kfk-server${n}.properties
-	runcmd_on ${bhost} sed -i "1s/^/log.segment.bytes=$((50*1024*1024))\n/" /tmp/kfk-server${n}.properties
+    runcmd_on ${bhost} "sed -i 's/^log\.dirs=.*$/log.dirs=\/tmp\/kafka-logs${bid}/' /tmp/kfk-server${n}.properties"
+    runcmd_on ${bhost} "sed -i 's/^log\.retention\.check.interval\.ms=.*$/log.retention.check.interval.ms=1000/' /tmp/kfk-server${n}.properties"
+    runcmd_on ${bhost} "sed -i '1s/^/log.retention.bytes=$((200*1024*1024))\n/' /tmp/kfk-server${n}.properties"
+    runcmd_on ${bhost} "sed -i '1s/^/log.segment.bytes=$((50*1024*1024))\n/' /tmp/kfk-server${n}.properties"
     runcmd_on ${bhost} $KAFKA_HOME/bin/kafka-server-start.sh -daemon /tmp/kfk-server${n}.properties &
   done
   wait
@@ -209,12 +211,13 @@ test_init() {
 	EOF
 
   runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --create --username dbadmin --password "" --config-schema stream_config --frame-duration "$FRAME_DURATION" --resource-pool stream_default_pool --operator dbadmin
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig cluster --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --hosts $BROKERS   
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig cluster --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --hosts $BROKERS --kafka_conf '{"api.version.request":false}'
   runcmd /opt/vertica/packages/kafka/bin/vkconfig target --create --username dbadmin --password "" --config-schema stream_config --target-schema public --target-table kafka_online_sales_fact 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --create --username dbadmin --password "" --config-schema stream_config --load-spec loadspec1  --parser delimited --filters $"FILTER KafkaInsertDelimiters(delimiter = E'\n')" --load-method auto 
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --create --username dbadmin --password "" --config-schema stream_config --load-spec loadspec1  --parser delimited --filters $"FILTER KafkaInsertDelimiters(delimiter = E'\n')" --load-method auto --uds-kv-parameters '{"api.version.request":false}'
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --read --username dbadmin --password "" --load-spec loadspec1
 
   for((n=0; n<TOPIC_COUNT; n++)) ; do
-    runcmd /opt/vertica/packages/kafka/bin/vkconfig source --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --source ${TOPIC_NAME}${n} --partitions $NUM_PARTS
+    runcmd /opt/vertica/packages/kafka/bin/vkconfig source --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --source ${TOPIC_NAME}${n} --partitions $NUM_PARTS --kafka_conf '{"api.version.request":false}'
     runcmd /opt/vertica/packages/kafka/bin/vkconfig microbatch --create --username dbadmin --password "" --config-schema stream_config --microbatch microbatch${n}  --target-schema public --target-table kafka_online_sales_fact --load-spec loadspec1 --add-source ${TOPIC_NAME}${n} --add-source-cluster testKafkaCluster --rejection-schema public --rejection-table kafka_online_sales_fact_rej
   done
 
@@ -284,7 +287,7 @@ producer_stop() {
   echo "stoping producer..."
 
   for((n=0; n<TOPIC_COUNT; n++)) ; do
-	runscript "ps ax | grep testkafkaproducer${n}.sh | grep -v "$0" | grep -v grep | awk '{print \$1}' | xargs kill -9"
+	runscript "ps ax | grep testkafkaproducer${n}.sh | grep -v "$0" | grep -v grep | awk '{print \$1}' | xargs -r kill -9"
   done
 }
 
@@ -315,14 +318,14 @@ mon() {
 	cat<<-EOF
 	  status...
 	  ----------------------------------------------------------------------------
-	  kafka status           : $kafka_status
 	  vertica status         : $vertica_status
-	  kafka offsets of topics: $kafka_offsets_of_topics
-	  target table rows count: $target_row_count
+	  microbatch history     : $latest_microbatch
 	  scheduler is running   : $scheduler_is_running
 	  running producers count: $running_producers_count
 	  running copy cmds count: $running_copy_count
-	  microbatch history     : $latest_microbatch
+	  kafka offsets of topics: $kafka_offsets_of_topics
+	  target table rows count: $target_row_count
+	  kafka status           : $kafka_status
 	EOF
 }
 
@@ -337,8 +340,8 @@ usage() {
 		Usage: $(basename ${0})
 		  -t tool: mon, kafka_clean, kafka_start, test_init, producer_start, consumer_start, producer_stop, consumer_stop, test_clean, kafka_stop, 
 		           services_reset = producer_stop; consumer_stop; kafka_stop; kafka_clean; kafka_start; test_clean; kafka_stop; kafka_start; test_init; kafka_stop
-		           services_start = producer_stop; consumer_stop; kafka_stop
-		           services_stop = kafka_start; consumer_start; producer_start
+		           services_stop = producer_stop; consumer_stop; kafka_stop
+		           services_start = kafka_start; consumer_start; producer_start
 		           services_restart = producer_stop; consumer_stop; kafka_stop; kafka_start; consumer_start; producer_start
 		  [-d dryrun, default off.]
 	EOF
@@ -357,10 +360,9 @@ done;
 
 VSQL=${VSQL:-"/opt/vertica/bin/vsql"}
 VSQL_F=${VSQL/-e/}; VSQL_F=${VSQL_F/-a/}
-KAFKA_HOME=${KAFKA_HOME:-"/usr/local/kafka_2.10-0.8.2.1"}
-# KAFKA_HOME=${KAFKA_HOME:-"/usr/local/kafka_2.10-0.9.0.1"}
+KAFKA_HOME=${KAFKA_HOME:-"/usr/local/kafka_2.10-0.9.0.1"}
 ZOOKEEPERS=${ZOOKEEPERS:-"v001:2181"}
-#BROKERS=${BROKERS:-"v001:9092,v001:9093,v001:9094"}
+#sample: BROKERS=${BROKERS:-"v001:9092,v001:9093,v001:9094"}
 BROKERS=${BROKERS:-"v001:9092"}
 REP_FACTOR=1
 TOPIC_NAME=online_sales_fact
