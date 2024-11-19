@@ -55,9 +55,9 @@ runscript_on() {
   scpt=$(sed "s/\\\\/\\\\\\\\/g"<<<"$@")
   
   if((dryRun)) ; then
-	echo ssh ${node} "echo ${scpt} | bash"
+	echo ssh ${node} "echo \"${scpt}\" | bash"
   else
-	ssh ${node} "echo ${scpt} | bash"
+	ssh ${node} "echo \"${scpt}\" | bash"
   fi
 }
 
@@ -76,7 +76,7 @@ kafka_stop() {
   echo stop kafka service...
   arrBrokerHosts=( $(sed 's/\,/\n/g'<<<"${BROKERS}"| sed 's/:.*//g' | sort -u) )
   for bhost in ${arrBrokerHosts[*]} ; do
-    runcmd_on ${bhost} "sed -i 's/xargs kill/xargs -r kill/g' $KAFKA_HOME/bin/kafka-server-stop.sh"
+    runscript_on ${bhost} "sed -i 's/xargs kill/xargs -r kill/g' $KAFKA_HOME/bin/kafka-server-stop.sh"
     runcmd_on ${bhost} $KAFKA_HOME/bin/kafka-server-stop.sh &
   done
   wait
@@ -85,8 +85,15 @@ kafka_stop() {
 
   arrZookeeperHosts=( $(sed 's/\,/\n/g'<<<"${ZOOKEEPERS}"| sed 's/:.*//g' | sort -u) )
   for zhost in ${arrZookeeperHosts[*]} ; do
-    runcmd_on ${zhost} "sed -i 's/xargs kill/xargs -r kill/g' $KAFKA_HOME/bin/zookeeper-server-stop.sh"
+    runscript_on ${zhost} "sed -i 's/xargs kill/xargs -r kill/g' $KAFKA_HOME/bin/zookeeper-server-stop.sh"
     runcmd_on ${zhost} $KAFKA_HOME/bin/zookeeper-server-stop.sh &
+  done
+  wait
+
+  # sometimes zoopker can not be stopped, just kill it roughly
+  runcmd sleep 2
+  for zhost in ${arrZookeeperHosts[*]} ; do
+    runscript_on ${zhost} "ps ax | grep -i 'zookeeper' | grep -v grep | cut -d ' ' -f 2 | xargs -r kill -9" &
   done
   wait
 }
@@ -105,7 +112,7 @@ kafka_clean() {
     zid=${n}
 	zhost=$(cut -d : -f 1 <<<${zookeeper})
     zport=$(cut -d : -f 2 <<<${zookeeper})
-    runcmd_on ${zhost} rm -rf /tmp/zookeeper${zid}/ &
+    runcmd_on ${zhost} rm -rf ${KAFKA_DATA}/zookeeper${zid}/ &
   done
   wait
 
@@ -116,7 +123,7 @@ kafka_clean() {
     bid=${n}
 	bhost=$(cut -d : -f 1 <<<${broker})
     bport=$(cut -d : -f 2 <<<${broker})
-    runcmd_on ${bhost} rm -rf /tmp/kafka-logs${bid}/ &
+    runcmd_on ${bhost} rm -rf ${KAFKA_DATA}/kafka-logs${bid}/ &
   done
   wait
 }
@@ -131,10 +138,10 @@ kafka_start() {
     zid=${n}
 	zhost=$(cut -d : -f 1 <<<${zookeeper})
     zport=$(cut -d : -f 2 <<<${zookeeper})
-    runcmd_on ${zhost} cp $KAFKA_HOME/config/zookeeper.properties /tmp/zookeeper${n}.properties
-    runcmd_on ${zhost} "sed -i 's/^clientPort=.*$/clientPort=${zport}/' /tmp/zookeeper${n}.properties"
-    runcmd_on ${zhost} "sed -i 's/^dataDir=.*$/dataDir=\/tmp\/zookeeper${zid}/' /tmp/zookeeper${n}.properties"
-    runcmd_on ${zhost} $KAFKA_HOME/bin/zookeeper-server-start.sh -daemon /tmp/zookeeper${n}.properties &
+    runcmd_on ${zhost} cp $KAFKA_HOME/config/zookeeper.properties $KAFKA_HOME/config/zookeeper${n}.properties
+    runscript_on ${zhost} "sed -i 's/^clientPort=.*$/clientPort=${zport}/' $KAFKA_HOME/config/zookeeper${n}.properties"
+    runscript_on ${zhost} "sed -i 's/^dataDir=.*$/dataDir=$(sed -e 's/\//\\\//g' <<< ${KAFKA_DATA})\/zookeeper${zid}/' $KAFKA_HOME/config/zookeeper${n}.properties"
+    runcmd_on ${zhost} $KAFKA_HOME/bin/zookeeper-server-start.sh -daemon $KAFKA_HOME/config/zookeeper${n}.properties &
   done
   wait
   runcmd sleep 5
@@ -146,17 +153,17 @@ kafka_start() {
     bid=${n}
 	bhost=$(cut -d : -f 1 <<<${broker})
     bport=$(cut -d : -f 2 <<<${broker})
-    runcmd_on ${bhost} cp $KAFKA_HOME/config/server.properties /tmp/kfk-server${n}.properties
-    runcmd_on ${bhost} "sed -i 's/^broker\.id=.*$/broker.id=${bid}/' /tmp/kfk-server${n}.properties"
-    runcmd_on ${bhost} "sed -i 's/^#*host\.name=.*$/host.name=${bhost}/' /tmp/kfk-server${n}.properties"
-    runcmd_on ${bhost} "sed -i 's/^port=.*$/port=${bport}/' /tmp/kfk-server${n}.properties"
-    runcmd_on ${bhost} "sed -i 's/^zookeeper\.connect=.*$/zookeeper.connect=${ZOOKEEPERS}/' /tmp/kfk-server${n}.properties"
+    runcmd_on ${bhost} cp $KAFKA_HOME/config/server.properties $KAFKA_HOME/config/kfk-server${n}.properties
+    runscript_on ${bhost} "sed -i 's/^broker\.id=.*$/broker.id=${bid}/' $KAFKA_HOME/config/kfk-server${n}.properties"
+    runscript_on ${bhost} "sed -i 's/^#*host\.name=.*$/host.name=${bhost}/' $KAFKA_HOME/config/kfk-server${n}.properties"
+    runscript_on ${bhost} "sed -i 's/^port=.*$/port=${bport}/' $KAFKA_HOME/config/kfk-server${n}.properties"
+    runscript_on ${bhost} "sed -i 's/^zookeeper\.connect=.*$/zookeeper.connect=${ZOOKEEPERS}/' $KAFKA_HOME/config/kfk-server${n}.properties"
 	
-    runcmd_on ${bhost} "sed -i 's/^log\.dirs=.*$/log.dirs=\/tmp\/kafka-logs${bid}/' /tmp/kfk-server${n}.properties"
-    runcmd_on ${bhost} "sed -i 's/^log\.retention\.check.interval\.ms=.*$/log.retention.check.interval.ms=1000/' /tmp/kfk-server${n}.properties"
-    runcmd_on ${bhost} "sed -i '1s/^/log.retention.bytes=$((200*1024*1024))\n/' /tmp/kfk-server${n}.properties"
-    runcmd_on ${bhost} "sed -i '1s/^/log.segment.bytes=$((50*1024*1024))\n/' /tmp/kfk-server${n}.properties"
-    runcmd_on ${bhost} $KAFKA_HOME/bin/kafka-server-start.sh -daemon /tmp/kfk-server${n}.properties &
+    runscript_on ${bhost} "sed -i 's/^log\.dirs=.*$/log.dirs=$(sed -e 's/\//\\\//g' <<< ${KAFKA_DATA})\/kafka-logs${bid}/' $KAFKA_HOME/config/kfk-server${n}.properties"
+    runscript_on ${bhost} "sed -i 's/^log\.retention\.check.interval\.ms=.*$/log.retention.check.interval.ms=1000/' $KAFKA_HOME/config/kfk-server${n}.properties"
+    runscript_on ${bhost} "sed -i '1s/^/log.retention.bytes=$((200*1024*1024))\n/' $KAFKA_HOME/config/kfk-server${n}.properties"
+    runscript_on ${bhost} "sed -i '1s/^/log.segment.bytes=$((50*1024*1024))\n/' $KAFKA_HOME/config/kfk-server${n}.properties"
+    runcmd_on ${bhost} $KAFKA_HOME/bin/kafka-server-start.sh -daemon $KAFKA_HOME/config/kfk-server${n}.properties &
   done
   wait
   runcmd sleep 5
@@ -339,7 +346,7 @@ usage() {
 		testing kafka & vertica integration.
 		Usage: $(basename ${0})
 		  -t tool: mon, kafka_clean, kafka_start, test_init, producer_start, consumer_start, producer_stop, consumer_stop, test_clean, kafka_stop, 
-		           services_reset = producer_stop; consumer_stop; kafka_stop; kafka_clean; kafka_start; test_clean; kafka_stop; kafka_start; test_init; kafka_stop
+		           services_reset = producer_stop; consumer_stop; kafka_stop; kafka_start; test_clean; kafka_stop; kafka_clean; kafka_start; test_init; kafka_stop
 		           services_stop = producer_stop; consumer_stop; kafka_stop
 		           services_start = kafka_start; consumer_start; producer_start
 		           services_restart = producer_stop; consumer_stop; kafka_stop; kafka_start; consumer_start; producer_start
@@ -361,9 +368,10 @@ done;
 VSQL=${VSQL:-"/opt/vertica/bin/vsql"}
 VSQL_F=${VSQL/-e/}; VSQL_F=${VSQL_F/-a/}
 KAFKA_HOME=${KAFKA_HOME:-"/usr/local/kafka_2.10-0.9.0.1"}
-ZOOKEEPERS=${ZOOKEEPERS:-"v001:2181"}
+KAFKA_DATA=/tmp/kafka
+ZOOKEEPERS=${ZOOKEEPERS:-"localhost:2181"}
 #sample: BROKERS=${BROKERS:-"v001:9092,v001:9093,v001:9094"}
-BROKERS=${BROKERS:-"v001:9092"}
+BROKERS=${BROKERS:-"localhost:9092"}
 REP_FACTOR=1
 TOPIC_NAME=online_sales_fact
 
@@ -385,7 +393,7 @@ case ${tool} in
 	consumer_stop ) consumer_stop;;
 	test_clean ) test_clean;;
 	mon ) mon;;
-	services_reset ) producer_stop; consumer_stop; kafka_stop; kafka_clean; kafka_start; test_clean; kafka_stop; kafka_start; test_init; kafka_stop;;
+	services_reset ) producer_stop; consumer_stop; kafka_stop; kafka_start; test_clean; kafka_stop; kafka_clean; kafka_start; test_init; kafka_stop;;
 	services_stop ) producer_stop; consumer_stop; kafka_stop;;
 	services_start ) kafka_start; consumer_start; producer_start;;
 	services_restart ) producer_stop; consumer_stop; kafka_stop; kafka_start; consumer_start; producer_start;;
