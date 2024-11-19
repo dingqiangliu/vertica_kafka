@@ -93,7 +93,7 @@ kafka_stop() {
   # sometimes zoopker can not be stopped, just kill it roughly
   runcmd sleep 2
   for zhost in ${arrZookeeperHosts[*]} ; do
-    runscript_on ${zhost} "ps ax | grep -i 'zookeeper' | grep -v grep | cut -d ' ' -f 2 | xargs -r kill -9" &
+    runscript_on ${zhost} "ps ax | grep -i 'zookeeper' | grep -v grep | xargs | cut -d ' ' -f 1 | xargs -r kill -9" &
   done
   wait
 }
@@ -295,6 +295,7 @@ producer_stop() {
 
   for((n=0; n<TOPIC_COUNT; n++)) ; do
 	runscript "ps ax | grep testkafkaproducer${n}.sh | grep -v "$0" | grep -v grep | awk '{print \$1}' | xargs -r kill -9"
+	runscript "ps ax | grep kafka.tools.ConsoleProducer | grep -v grep | awk '{print \$1}' | xargs -r kill -9"
   done
 }
 
@@ -320,7 +321,7 @@ mon() {
   scheduler_is_running=$(test -n "$vertica_status" && $VSQL_F -F ", " -XAqtc "SELECT count(*) as cnt FROM v_monitor.locks AS l JOIN v_catalog.tables AS t ON l.object_id = t.table_id WHERE t.table_schema ilike 'stream_config' AND t.table_name = 'stream_lock' AND l.lock_scope ilike '%transaction%' AND l.lock_mode ilike '%s%';")
   running_producers_count=$(ps ax | grep testkafkaproducer.*.sh | grep -v grep | awk '{print $6}' | sort -u | wc -l)
   running_copy_count=$(test -n "$vertica_status" && $VSQL_F -F ", " -XAqtc "select count(*) from sessions where current_statement like 'COPY%KafkaSource%';")
-  latest_microbatch=$(test -n "$vertica_status" && $VSQL_F -F ", " -XAqtc "select microbatch,source_name,batch_start,batch_end-batch_start,end_offset,(end_offset-start_offset) as msgs,end_reason from stream_config.stream_microbatch_history limit 1 over(partition by microbatch,source_name order by batch_start desc);"|sed '2,$s/^/                           /g')
+  latest_microbatch=$(test -n "$vertica_status" && $VSQL_F -F ", " -XAqtc "select row(microbatch,source_name,batch_start,(batch_end-batch_start) as duration,end_offset,(end_offset-start_offset) as msgs,end_reason) from stream_config.stream_microbatch_history limit 1 over(partition by microbatch,source_name order by batch_start desc);"|sed '2,$s/^/                           /g')
   
 	cat<<-EOF
 	  status...
