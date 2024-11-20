@@ -217,15 +217,15 @@ test_init() {
 	
 	EOF
 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --create --username dbadmin --password "" --config-schema stream_config --frame-duration "$FRAME_DURATION" --resource-pool stream_default_pool --operator dbadmin
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig cluster --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --hosts $BROKERS --kafka_conf '{"api.version.request":false}'
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig target --create --username dbadmin --password "" --config-schema stream_config --target-schema public --target-table kafka_online_sales_fact 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --create --username dbadmin --password "" --config-schema stream_config --load-spec loadspec1  --parser delimited --filters $"FILTER KafkaInsertDelimiters(delimiter = E'\n')" --load-method auto --uds-kv-parameters '{"api.version.request":false}'
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --read --username dbadmin --password "" --load-spec loadspec1
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --create --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config --frame-duration "$FRAME_DURATION" --resource-pool stream_default_pool --operator "$VER_SCHED_USER"
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig cluster --create --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config --cluster testKafkaCluster --hosts $BROKERS --kafka_conf '{"api.version.request":false}'
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig target --create --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config --target-schema public --target-table kafka_online_sales_fact
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --create --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config --load-spec loadspec1  --parser delimited --filters $"FILTER KafkaInsertDelimiters(delimiter = E'\n')" --load-method auto --uds-kv-parameters '{"api.version.request":false}'
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --read --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --load-spec loadspec1
 
   for((n=0; n<TOPIC_COUNT; n++)) ; do
-    runcmd /opt/vertica/packages/kafka/bin/vkconfig source --create --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --source ${TOPIC_NAME}${n} --partitions $NUM_PARTS --kafka_conf '{"api.version.request":false}'
-    runcmd /opt/vertica/packages/kafka/bin/vkconfig microbatch --create --username dbadmin --password "" --config-schema stream_config --microbatch microbatch${n}  --target-schema public --target-table kafka_online_sales_fact --load-spec loadspec1 --add-source ${TOPIC_NAME}${n} --add-source-cluster testKafkaCluster --rejection-schema public --rejection-table kafka_online_sales_fact_rej
+    runcmd /opt/vertica/packages/kafka/bin/vkconfig source --create --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config --cluster testKafkaCluster --source ${TOPIC_NAME}${n} --partitions $NUM_PARTS --kafka_conf '{"api.version.request":false}'
+    runcmd /opt/vertica/packages/kafka/bin/vkconfig microbatch --create --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config --microbatch microbatch${n}  --target-schema public --target-table kafka_online_sales_fact --load-spec loadspec1 --add-source ${TOPIC_NAME}${n} --add-source-cluster testKafkaCluster --rejection-schema public --rejection-table kafka_online_sales_fact_rej
   done
 
 	runcmd $VSQL <<-EOF
@@ -246,13 +246,13 @@ test_init() {
 test_clean() {
   echo droping config on vertica ...
   for((n=0; n<TOPIC_COUNT; n++)) ; do
-    runcmd /opt/vertica/packages/kafka/bin/vkconfig microbatch --delete --username dbadmin --password "" --config-schema stream_config --microbatch microbatch${n} 
-    runcmd /opt/vertica/packages/kafka/bin/vkconfig source --delete --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster --source ${TOPIC_NAME}${n} 
+    runcmd /opt/vertica/packages/kafka/bin/vkconfig microbatch --delete --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config --microbatch microbatch${n}
+    runcmd /opt/vertica/packages/kafka/bin/vkconfig source --delete --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config --cluster testKafkaCluster --source ${TOPIC_NAME}${n}
   done
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --delete --username dbadmin --password "" --config-schema stream_config --load-spec loadspec1 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig target --delete --username dbadmin --password "" --config-schema stream_config --target-schema public --target-table kafka_online_sales_fact 
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig cluster --delete --username dbadmin --password "" --config-schema stream_config --cluster testKafkaCluster
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --drop --username dbadmin --password "" --config-schema  stream_config
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig load-spec --delete --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config --load-spec loadspec1
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig target --delete --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config --target-schema public --target-table kafka_online_sales_fact
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig cluster --delete --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config --cluster testKafkaCluster
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig scheduler --drop --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema  stream_config
 
   ## uninstall kafka connector for Vertica
   #runcmd $VSQL -c "drop schema if exists stream_config cascade;"
@@ -271,6 +271,7 @@ producer_start() {
 
   for((n=0; n<TOPIC_COUNT; n++)) ; do
 	cat <<-EOF > /tmp/testkafkaproducer${n}.sh
+#!/usr/bin/env bash
 	  while true; do
 	    maxKafkaTopicOffset=\$($KAFKA_HOME/bin/kafka-run-class.sh kafka.tools.GetOffsetShell --broker-list $BROKERS --topic ${TOPIC_NAME}${n} --time -1| awk -F : '{print \$3}' | sort | tail -1)
 	    maxVerticaTopicOffset=\$($VSQL_F -XAqtc "select max(end_offset) from stream_config.stream_microbatch_history where source_cluster='testkafkacluster' and source_name='${TOPIC_NAME}${n}';")
@@ -302,13 +303,13 @@ producer_stop() {
 # start consumer
 consumer_start() {
   echo loading data ...
-  runcmd nohup /opt/vertica/packages/kafka/bin/vkconfig launch --username dbadmin --password "" --config-schema stream_config --instance-name scheduler0 &
+  runcmd nohup /opt/vertica/packages/kafka/bin/vkconfig launch --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config --instance-name scheduler0 &
 }
 
 # stop consumer
 consumer_stop() {
   echo "stoping consumer..."
-  runcmd /opt/vertica/packages/kafka/bin/vkconfig shutdown --username dbadmin --password "" --config-schema stream_config 
+  runcmd /opt/vertica/packages/kafka/bin/vkconfig shutdown --username "$VER_SCHED_USER" --password "$VER_SCHED_PWD" --config-schema stream_config
 }
 
 # mon
@@ -368,6 +369,8 @@ done;
 
 VSQL=${VSQL:-"/opt/vertica/bin/vsql"}
 VSQL_F=${VSQL/-e/}; VSQL_F=${VSQL_F/-a/}
+VER_SCHED_USER="dbadmin"
+VER_SCHED_PWD=""
 KAFKA_HOME=${KAFKA_HOME:-"/usr/local/kafka_2.10-0.9.0.1"}
 KAFKA_DATA=/tmp/kafka
 ZOOKEEPERS=${ZOOKEEPERS:-"localhost:2181"}
